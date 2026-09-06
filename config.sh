@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================================
-# CONFIGURATION ENSEIGNANT (À AJUSTER SELON VOTRE INFRASTRUCTURE)
+# CONFIGURATION
 # =========================================================================
 TARGET_STORAGE_NVME="nvme-thin"   # Nom de votre stockage NVMe LVM-Thin
 TARGET_STORAGE_SSD="ssd-ha-zfs"   # Nom de votre stockage SSD ZFS
@@ -13,36 +13,63 @@ BACKUP_FILE="vzdump-qemu-Debian-Baseline.vma.zst" # Nom exact du fichier import�
 # =========================================================================
 clear
 echo "========================================================================="
-echo "        PROXMOX DEPLOYMENT SCRIPT - LABO DE PERFORMANCE CEGEP"
+echo "        PROXMOX - LABO DE PERFORMANCE CEGEP"
 echo "========================================================================="
 echo ""
-read -rp "Entrez le VMID que vous souhaitez créer (ex: 200) : " VMID
+read -rp "Entrez le VMID que vous souhaitez créer (ex: 200, se référer au tableau des assignations des ressources du cours) : " VMID
 
 # Validation : Est-ce que le VMID est un nombre ?
 if [[ ! "$VMID" =~ ^[0-9]+$ ]]; then
     echo "❌ Erreur : Le VMID doit être un nombre entier."
     exit 1
 fi
-
+ 
 # Validation : Est-ce que le VMID est déjà utilisé par une VM ou un CT Proxmox ?
 # (utilise jq sur du JSON structuré pour éviter les faux positifs de grep
-#  sur un tableau texte où le nombre pourrait apparaître ailleurs)
+#  sur un tableau texte où le nombre pourrait apparaître ailleurs, et affiche
+#  les infos de la ressource existante pour aider à comprendre le conflit)
 if command -v jq &> /dev/null; then
-    VMID_EXISTS=$(pvesh get /cluster/resources --type vm --output-format json 2>/dev/null \
-        | jq -r --arg id "$VMID" '.[] | select(.vmid == ($id | tonumber)) | .vmid')
+    VMID_INFO=$(pvesh get /cluster/resources --type vm --output-format json 2>/dev/null \
+        | jq -r --arg id "$VMID" '.[] | select(.vmid == ($id | tonumber))')
+ 
+    if [[ -n "$VMID_INFO" ]]; then
+        VM_NAME=$(echo "$VMID_INFO" | jq -r '.name // "inconnu"')
+        VM_TYPE=$(echo "$VMID_INFO" | jq -r '.type // "inconnu"')
+        VM_STATUS=$(echo "$VMID_INFO" | jq -r '.status // "inconnu"')
+        VM_NODE=$(echo "$VMID_INFO" | jq -r '.node // "inconnu"')
+ 
+        echo ""
+        echo "❌ Erreur : Le VMID $VMID est déjà utilisé :"
+        echo "   Nom    : $VM_NAME"
+        echo "   Type   : $VM_TYPE"
+        echo "   État   : $VM_STATUS"
+        echo "   Nœud   : $VM_NODE"
+        echo "   Arrêt du script."
+        exit 1
+    fi
 else
     echo "(jq non installé, utilisation de qm list / pct list en solution de secours)"
-    VMID_EXISTS=$(qm list 2>/dev/null | awk -v id="$VMID" '$1==id{print $1}')
-    if [[ -z "$VMID_EXISTS" ]]; then
-        VMID_EXISTS=$(pct list 2>/dev/null | awk -v id="$VMID" '$1==id{print $1}')
+ 
+    QM_MATCH=$(qm list 2>/dev/null | awk -v id="$VMID" '$1==id')
+    if [[ -n "$QM_MATCH" ]]; then
+        echo ""
+        echo "❌ Erreur : Le VMID $VMID est déjà utilisé par une VM (qemu) :"
+        qm list | awk -v id="$VMID" 'NR==1 || $1==id'
+        echo "   Arrêt du script."
+        exit 1
+    fi
+ 
+    PCT_MATCH=$(pct list 2>/dev/null | awk -v id="$VMID" '$1==id')
+    if [[ -n "$PCT_MATCH" ]]; then
+        echo ""
+        echo "❌ Erreur : Le VMID $VMID est déjà utilisé par un conteneur (LXC) :"
+        pct list | awk -v id="$VMID" 'NR==1 || $1==id'
+        echo "   Arrêt du script."
+        exit 1
     fi
 fi
-
-if [[ -n "$VMID_EXISTS" ]]; then
-    echo "❌ Erreur : Le VMID $VMID est déjà utilisé sur ce nœud ou le cluster. Arrêt du script."
-    exit 1
-fi
-
+ 
+ 
 echo "✅ Le VMID $VMID est disponible."
 echo ""
 
@@ -76,9 +103,9 @@ echo " 19) C19 - NVMe | RAM Dynamique (Ballooning ON, 4-16 Go)"
 echo " 20) C20 - NVMe | Hugepages 2M activées"
 echo " 21) C21 - SSD (ZFS) | Conflit RAM direct vs ARC Cache"
 echo "AXE 4 : COMPARAISON IO THREAD"
-echo " 22) C22 - NVMe | SCSI | No Cache | SANS IO Thread (à comparer avec C1)"
+echo " 22) C22 - NVMe | SCSI | No Cache | SANS IO Thread"
 echo "-------------------------------------------------------------------------"
-read -rp "Entrez votre choix (1-22) : " CHOIX
+read -rp "Entrez votre choix (1-22) [CTRL+C pour annuler] : " CHOIX
 
 if [[ ! "$CHOIX" =~ ^[0-9]+$ ]] || (( CHOIX < 1 || CHOIX > 22 )); then
     echo "❌ Choix invalide. Script arrêté."
@@ -91,7 +118,7 @@ fi
 echo ""
 echo "🔄 Restauration initiale du backup en cours..."
 # Restauration par défaut sur le stockage NVMe ultra-rapide pour sauver du temps
-qmrestore ${BACKUP_STORAGE}:backup/${BACKUP_FILE} "$VMID" --storage "$TARGET_STORAGE_NVME"
+qmrestore ${BACKUP_STORAGE}:backup/${BACKUP_FILE} "$VMID" --storage "$TARGET_STORAGE_NVME" --unique true
 
 if [ $? -ne 0 ]; then
     echo "❌ Erreur critique lors de la restauration du backup."
@@ -263,9 +290,9 @@ esac
 
 echo ""
 echo "========================================================================="
-echo " 🎉 CONFIGURATION TERMINÉE AVEC SUCCÈS !"
+echo " CONFIGURATION TERMINÉE AVEC SUCCÈS !"
 echo " VMID : $VMID"
-echo " Nom Proxmox : debian-c${CONFIG_NUM}"
+echo " Nom de la VM dans Proxmox : debian-c${CONFIG_NUM}"
 echo "========================================================================="
-echo " Vous pouvez démarrer la VM et débuter les tests du guide de labo."
+echo " Vous pouvez démarrer la VM et débuter le protocole de tests."
 echo "========================================================================="
