@@ -48,25 +48,27 @@ if command -v jq &> /dev/null; then
         exit 1
     fi
 else
-    echo "(jq non installé, utilisation de qm list / pct list en solution de secours)"
+#    echo "(jq non installé, utilisation de qm list / pct list en solution de secours)"
+    echo "jq non installé, tu dois installer le package jq avant de continuer"
+    exit 1
  
-    QM_MATCH=$(qm list 2>/dev/null | awk -v id="$VMID" '$1==id')
-    if [[ -n "$QM_MATCH" ]]; then
-        echo ""
-        echo "❌ Erreur : Le VMID $VMID est déjà utilisé par une VM (qemu) :"
-        qm list | awk -v id="$VMID" 'NR==1 || $1==id'
-        echo "   Arrêt du script."
-        exit 1
-    fi
+#    QM_MATCH=$(qm list 2>/dev/null | awk -v id="$VMID" '$1==id')
+#    if [[ -n "$QM_MATCH" ]]; then
+#        echo ""
+#        echo "❌ Erreur : Le VMID $VMID est déjà utilisé par une VM (qemu) :"
+#        qm list | awk -v id="$VMID" 'NR==1 || $1==id'
+#        echo "   Arrêt du script."
+#        exit 1
+#    fi
  
-    PCT_MATCH=$(pct list 2>/dev/null | awk -v id="$VMID" '$1==id')
-    if [[ -n "$PCT_MATCH" ]]; then
-        echo ""
-        echo "❌ Erreur : Le VMID $VMID est déjà utilisé par un conteneur (LXC) :"
-        pct list | awk -v id="$VMID" 'NR==1 || $1==id'
-        echo "   Arrêt du script."
-        exit 1
-    fi
+#    PCT_MATCH=$(pct list 2>/dev/null | awk -v id="$VMID" '$1==id')
+#    if [[ -n "$PCT_MATCH" ]]; then
+#        echo ""
+#        echo "❌ Erreur : Le VMID $VMID est déjà utilisé par un conteneur (LXC) :"
+#        pct list | awk -v id="$VMID" 'NR==1 || $1==id'
+#        echo "   Arrêt du script."
+#        exit 1
+#    fi
 fi
  
  
